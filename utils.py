@@ -1,4 +1,4 @@
-
+import os
 import torch
 import random
 import numpy as np
@@ -90,10 +90,12 @@ def export_csv(export_file_path: str, result: List[int], image_names: List[str])
     Export to csv file with 2 columns format: idx, label.
 
     Args:
-        export_file_path: Path to store the csv file, the directories that lead to the path must exists.
+        export_file_path: Path to store the csv file.
 
         result: List of predicted labels.
     """
+    os.makedirs(os.path.dirname(export_file_path), exist_ok=True)
+
     with open(export_file_path, "w") as file:
         file.write("id,type\n")
         for i, res in enumerate(result):

@@ -18,7 +18,7 @@ if __name__ == "__main__":
     print("\nPredict on unlabeled dataset")
     predictions = []
     val_u_dataset   = UnlabeledFolderDataset(root_dir=config.unlabeled_dataset_dir, transform=org_transform, aug_transform=aug_transform)
-    val_u_loader    = DataLoader(val_u_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
+    val_u_loader    = DataLoader(val_u_dataset, batch_size=512, shuffle=False, num_workers=4, pin_memory=True)
 
 
     student = get_base_model()
@@ -32,6 +32,8 @@ if __name__ == "__main__":
             outputs = student(inputs)
             prediction = torch.argmax(outputs.data, 1).cpu().tolist()
             predictions.extend(prediction)
+            print(f"Predicting {i + 1}/{len(val_u_loader)}...\r", end='')
+        print("Predicting complete." + " " * 20)
     
     image_paths = val_u_dataset.get_all_image_paths()
     image_names = [os.path.basename(path).split(".")[0]  for path in image_paths]
