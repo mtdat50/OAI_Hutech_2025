@@ -6,8 +6,9 @@ The task is image classification.
 
 Base model: **Efficienetv2_l** [[1]](#1)
 
-Training method: **Meta Pseudo Labels**.
-> "We present Meta Pseudo Labels, a semi-supervised learning method that achieves a new state-of-the-art top-1 accuracy of 90.2% on ImageNet, which is 1.6% better than the existing state-of-the-art. Like Pseudo Labels, Meta Pseudo Labels has a teacher network to generate pseudo labels on unlabeled data to teach a student network. However, unlike Pseudo Labels where the teacher is fixed, the teacher in Meta Pseudo Labels is constantly adapted by the feedback of the student's performance on the labeled dataset. As a result, the teacher generates better pseudo labels to teach the student." [[2]](#2)
+Training method: **Meta Pseudo Labels**, a semi-supervised training method.
+
+> "Like Pseudo Labels, Meta Pseudo Labels has a teacher network to generate pseudo labels on unlabeled data to teach a student network. However, unlike Pseudo Labels where the teacher is fixed, the teacher in Meta Pseudo Labels is constantly adapted by the feedback of the student's performance on the labeled dataset. As a result, the teacher generates better pseudo labels to teach the student." [[2]](#2)
 
 ## Set up enviroment
 Create virtual environment:
@@ -23,6 +24,7 @@ which python3
 
 Install dependencies:
 ```Shell
+pip3 install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
 pip3 install -r requirements.txt
 ```
 
