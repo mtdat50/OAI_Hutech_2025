@@ -10,17 +10,8 @@ from torchvision.models import efficientnet_v2_l, EfficientNet_V2_L_Weights
 
 from typing import Tuple, List
 
+import config
 
-aug_transform = v2.Compose([
-    v2.ToImage(), 
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Resize((32, 32)),
-    v2.RandomHorizontalFlip(),  # Lật ngang
-    v2.RandomRotation(20),  # Xoay ngẫu nhiên
-    v2.RandomResizedCrop(32, scale=(0.8, 1.0)),
-    v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
-    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
 
 org_transform = v2.Compose([
     v2.ToImage(), 
@@ -28,17 +19,28 @@ org_transform = v2.Compose([
     v2.Resize((32, 32)),
     v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
-
+aug_transform = v2.Compose([
+    v2.ToImage(), 
+    v2.ToDtype(torch.float32, scale=True),
+    v2.Resize((32, 32)),
+    v2.RandomHorizontalFlip(),
+    v2.RandomRotation(20), 
+    v2.RandomResizedCrop(32, scale=(0.8, 1.0)),
+    v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
+    v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
 
 def set_seed(seed: int = 42) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
 
 def get_base_model(n_classes=4):
+    set_seed(config.SEED)
     model = efficientnet_v2_l(weights=EfficientNet_V2_L_Weights.DEFAULT)
     model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, n_classes)
     return model

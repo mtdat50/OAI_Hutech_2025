@@ -14,6 +14,8 @@ if __name__ == "__main__":
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     print(f'Running on device: {device}')
     set_seed(config.SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     print("\nPredict on unlabeled dataset")
     predictions = []

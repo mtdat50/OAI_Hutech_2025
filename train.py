@@ -1,24 +1,13 @@
-import os
-import math
 import copy
 import torch
-import kagglehub
-import numpy as np
 import torch.nn as nn
-
-from sklearn.model_selection import train_test_split
-
-from torch.utils.data import DataLoader
-
-from torch.nn.functional import softmax, kl_div
 
 from torch.optim import AdamW
 from torch.optim.optimizer import Optimizer
+from torch.utils.data import DataLoader
+from torch.nn.functional import softmax, log_softmax, kl_div
 
-from torchvision.transforms import v2
-from torchvision.models import efficientnet_v2_l, EfficientNet_V2_L_Weights
-
-from typing import Tuple, List
+from sklearn.model_selection import train_test_split
 
 import config
 from dataset import LabeledDataset, UnlabeledFolderDataset, get_labeled_image_folder
@@ -26,6 +15,7 @@ from utils import (
     aug_transform, org_transform,
     get_base_model, load_checkpoint, save_checkpoint, set_seed
 )
+
 
 def train(
     model: nn.Module,
@@ -118,7 +108,6 @@ def train_MPL(
     teacher_samples_cnt = 1e-9
     student_samples_cnt = 1e-9
 
-    nll_loss = nn.NLLLoss()
     unlabeled_loader = iter(u_loader)
 
     for i, (labeled_inputs, augmented_labeled_inputs, labeled_targets) in enumerate(l_loader):
@@ -153,7 +142,7 @@ def train_MPL(
         if augmented_unlabeled_inputs.size(0) > 1: # Need more than 1 sample, or the model's batch norm will raise error
             student_clone.train()
             unsup_outputs = student_clone(augmented_unlabeled_inputs)
-            unsup_loss = criterion(unsup_outputs, pseudo_labels)
+            unsup_loss = criterion(unsup_outputs, pseudo_labels) 
 
             optimizer_clone.zero_grad()
             unsup_loss.backward()
@@ -169,9 +158,9 @@ def train_MPL(
         teacher_sup_loss = criterion(outputs, labeled_targets)
         
         # ==== 7. Backprop supervised loss through pseudo labels to teacher ====
-        augmented_p = softmax(pseudo_logits, dim=-1)
+        log_augmented_p = log_softmax(pseudo_logits, dim=-1)
         org_p       = softmax(teacher(unlabeled_inputs), dim=-1)
-        uda_loss = kl_div(augmented_p, org_p, reduction="batchmean") * 0.6 + 1
+        uda_loss = kl_div(log_augmented_p, org_p, reduction="batchmean")
 
         teacher_optimizer.zero_grad()
         teacher_loss = uda_loss + meta_loss  + teacher_sup_loss
@@ -216,6 +205,9 @@ if __name__ == "__main__":
     print(f'Running on device: {device}')
 
     set_seed(config.SEED)
+    # Ensure deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     labeled_image_paths, labels = get_labeled_image_folder(config.labeled_dataset_dir)
 
@@ -225,6 +217,7 @@ if __name__ == "__main__":
     l_batch_size = 512
     u_batch_size = len(u_dataset)
 
+    generator = torch.Generator().manual_seed(config.SEED)
     l_loader  = DataLoader(l_dataset, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
     u_loader  = DataLoader(u_dataset, batch_size=u_batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
@@ -234,19 +227,17 @@ if __name__ == "__main__":
     student = get_base_model()
     teacher = teacher.to(device)
 
-    weight_decay = 1e-4
-    criterion = nn.CrossEntropyLoss()
-
-    # ============================================
-    print(f"\nTrain both the teacher and the student")
     initial_lr = 2e-5
-    # final_lr = 1e-7
-    # [teacher, _, _, _] = load_checkpoint(teacher_chkpt, teacher)
+    weight_decay = 1e-4
     teacher_optimizer = AdamW(teacher.parameters(), lr=initial_lr/2, weight_decay=weight_decay)
     student_optimizer = AdamW(student.parameters(), lr=initial_lr, weight_decay=weight_decay)
     teacher = teacher.to(device)
     student = student.to(device)
-    
+    criterion = nn.CrossEntropyLoss()
+
+    # ============================================
+    print(f"\nTrain both the teacher and the student")
+
     min_loss = 1e9
     epochs = 1000
     for epoch in range(epochs):
@@ -269,10 +260,11 @@ if __name__ == "__main__":
         stratify=labels
     )
 
-    train_set   = LabeledDataset(train_paths, train_labels, transform=org_transform, aug_transform=aug_transform)
-    val_set     = LabeledDataset(test_paths, test_labels, transform=org_transform, aug_transform=aug_transform)
-    train_loader    = DataLoader(train_set, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader      = DataLoader(val_set, batch_size=l_batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_set = LabeledDataset(train_paths, train_labels, transform=org_transform, aug_transform=aug_transform)
+    val_set   = LabeledDataset(test_paths, test_labels, transform=org_transform, aug_transform=aug_transform)
+
+    train_loader = DataLoader(train_set, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader   = DataLoader(val_set, batch_size=l_batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     [student, _, _, _] = load_checkpoint(student_chkpt, student)
     student_optimizer = AdamW(student.parameters(), lr=1e-6, weight_decay=weight_decay)
