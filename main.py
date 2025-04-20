@@ -16,10 +16,8 @@ import torch
 import torch.nn as nn
 # import tensorflow as tf
 
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim import Adam
 from torch.utils.data import DataLoader
-from sklearn.model_selection import train_test_split
 
 ### END: CÁC THƯ VIỆN IMPORT ###
 
@@ -38,7 +36,7 @@ torch.cuda.manual_seed_all(SEED)
 ### END: SEEDING EVERYTHING - KHÔNG THAY ĐỔI ###
 
 # START: IMPORT CÁC THƯ VIỆN CUSTOM, MODEL, v.v. riêng của nhóm ###
-from libs.train import train, validate, train_MPL
+from libs.train import train, train_MPL
 from libs.dataset import LabeledDataset, UnlabeledFolderDataset, get_labeled_image_folder
 from libs.utils import (
     aug_transform, org_transform,
@@ -62,27 +60,25 @@ labeled_image_paths, labels = get_labeled_image_folder(TRAIN_DATA_DIR_PATH)
 l_dataset = LabeledDataset(image_paths=labeled_image_paths, labels=labels, transform=org_transform, aug_transform=aug_transform)
 u_dataset = UnlabeledFolderDataset(root_dir=TEST_DATA_DIR_PATH, transform=org_transform, aug_transform=aug_transform)
 
-l_batch_size = 512
-u_batch_size = 256
+l_batch_size = 128
+u_batch_size = 128
 
 l_loader  = DataLoader(l_dataset, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
 u_loader  = DataLoader(u_dataset, batch_size=u_batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
 teacher_chkpt = "teacher.pt"
 student_chkpt = "student.pt"
+
+weight_decay = 1e-4
+initial_lr = 2e-5
 teacher = get_base_model()
 student = get_base_model()
-teacher = teacher.to(device)
-
-initial_lr = 1e-3
-weight_decay = 1e-4
-teacher_optimizer = AdamW(teacher.parameters(), lr=initial_lr/2, weight_decay=weight_decay)
-student_optimizer = AdamW(student.parameters(), lr=initial_lr, weight_decay=weight_decay)
-teacher_lr = ReduceLROnPlateau(teacher_optimizer, factor=0.2, patience=20)
-student_lr = ReduceLROnPlateau(student_optimizer, factor=0.2, patience=20)
+teacher_optimizer = Adam(teacher.parameters(), lr=initial_lr/2, weight_decay=weight_decay)
+student_optimizer = Adam(student.parameters(), lr=initial_lr, weight_decay=weight_decay)
 teacher = teacher.to(device)
 student = student.to(device)
-criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+criterion = nn.CrossEntropyLoss()
 
 # ============================================
 print(f"\nTrain both the teacher and the student")
@@ -91,48 +87,28 @@ min_loss = 1e9
 epochs = 1000
 for epoch in range(epochs):
     print(f"Epoch {epoch + 1}/{epochs}")
-    print(f"LR {student_lr.get_last_lr()}")
     loss = train_MPL(teacher, student, teacher_optimizer, student_optimizer, criterion, l_loader, u_loader, device)
 
-    teacher_lr.step(loss)
-    student_lr.step(loss)
-
-    if loss < min_loss:
-        min_loss = loss
-        save_checkpoint(teacher_chkpt, teacher, teacher_optimizer, epoch, loss)
-        save_checkpoint(student_chkpt, student, student_optimizer, epoch, loss)
-
+save_checkpoint(teacher_chkpt, teacher, teacher_optimizer, epoch, loss)
+save_checkpoint(student_chkpt, student, student_optimizer, epoch, loss)
 
 # ============================================
 print(f"\nFine-tune student on labeled dataset")
-train_paths, test_paths, train_labels, test_labels = train_test_split(
-    labeled_image_paths, 
-    labels, 
-    test_size=0.1, 
-    shuffle=True, 
-    random_state=SEED, 
-    stratify=labels
-)
 
-train_set = LabeledDataset(train_paths, train_labels, transform=org_transform, aug_transform=aug_transform)
-val_set   = LabeledDataset(test_paths, test_labels, transform=org_transform, aug_transform=aug_transform)
-
+train_set = LabeledDataset(labeled_image_paths, labels, transform=org_transform, aug_transform=aug_transform)
 train_loader = DataLoader(train_set, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
-val_loader   = DataLoader(val_set, batch_size=l_batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
 [student, _, _, _] = load_checkpoint(student_chkpt, student)
-student_optimizer = AdamW(student.parameters(), lr=1e-6, weight_decay=weight_decay)
+student_optimizer = Adam(student.parameters(), lr=1e-6, weight_decay=weight_decay)
 
-epochs = 50
+epochs = 100
 min_loss = 1e9
 model_checkpoint = "model_chkpt/finetuned_student.pt"
 for epoch in range(epochs):
     print(f"Epoch {epoch + 1}/{epochs}")
-    train(student, student_optimizer, train_loader, criterion, device)
-    loss = validate(student, val_loader, criterion, device)
-    if loss < min_loss:
-        min_loss = loss
-        save_checkpoint(model_checkpoint, student, student_optimizer, epoch, loss)
+    loss = train(student, student_optimizer, train_loader, criterion, device)
+
+save_checkpoint(model_checkpoint, student, student_optimizer, epoch, loss)
     
 ### END: ĐỊNH NGHĨA & CHẠY HUẤN LUYỆN MÔ HÌNH ###
 

@@ -6,7 +6,7 @@ import torch.nn as nn
 
 from torchvision.transforms import v2
 from torch.optim.optimizer import Optimizer
-from torchvision.models import efficientnet_v2_l, EfficientNet_V2_L_Weights
+from torchvision.models import efficientnet_v2_s, EfficientNet_V2_S_Weights
 
 from typing import Tuple, List
 
@@ -20,11 +20,10 @@ org_transform = v2.Compose([
 aug_transform = v2.Compose([
     v2.ToImage(), 
     v2.ToDtype(torch.float32, scale=True),
-    v2.RandomResizedCrop(32, scale=(0.8, 1.0)),
-    v2.RandomPerspective(distortion_scale=0.2),
+    v2.Resize((32, 32)),
     v2.RandomHorizontalFlip(),
     v2.RandomRotation(20),
-    v2.Resize((32, 32)),
+    v2.RandomResizedCrop(32, scale=(0.8, 1.0)),
     v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
     v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
@@ -39,7 +38,7 @@ def set_seed(seed: int = 42) -> None:
 
 
 def get_base_model(n_classes=4):
-    model = efficientnet_v2_l(weights=EfficientNet_V2_L_Weights.DEFAULT)
+    model = efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.DEFAULT)
     model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, n_classes)
     return model
 
@@ -103,7 +102,7 @@ def export_csv(export_file_path: str, result: List[int], image_names: List[str])
         os.makedirs(dir, exist_ok=True)
 
     with open(export_file_path, "w") as file:
-        file.write("id,type\n")
+        file.write("image_name,type\n")
         for i, res in enumerate(result):
             file.write(f"{image_names[i]},{res}\n")
     print(f"Exported results to {export_file_path}.")
