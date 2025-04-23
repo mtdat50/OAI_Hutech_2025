@@ -4,7 +4,7 @@ Olympiad in Artificial Intelligence at Ho Chi Minh 2025.
 
 The task is image classification.
 
-Base model: **Efficienetv2_l** [[1]](#1)
+Base model: **Efficienetv2_s** [[1]](#1)
 
 Training method: **Meta Pseudo Labels**, a semi-supervised training method.
 
@@ -20,6 +20,11 @@ Activate virtual environmnet:
 ```Shell
 source .venv/bin/activate
 which python3
+```
+
+Upgrade Pip:
+```Shell
+pip3 install --upgrade pip
 ```
 
 Install dependencies:
@@ -39,7 +44,7 @@ TEST_DATA_DIR_PATH = 'data/test'
 
 Path to save model in training and load model in predicting:
 ```Python
-model_checkpoint = "./models_chkpt/finetuned_student.pt"
+model_checkpoint = "models_chkpt/finetuned_student.pt"
 ```
 
 Path to export predicted result:

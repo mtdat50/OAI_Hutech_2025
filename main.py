@@ -1,5 +1,5 @@
 ### START: CÁC KHAI BÁO CHÍNH - KHÔNG THAY ĐỔI ###
-SEED = 0  # Số seed (Ban tổ chức sẽ công bố & thay đổi vào lúc chấm)
+SEED = 25  # Số seed (Ban tổ chức sẽ công bố & thay đổi vào lúc chấm)
 # Đường dẫn đến thư mục train
 # (đúng theo cấu trúc gồm 4 thư mục cho 4 classes của ban tổ chức)
 TRAIN_DATA_DIR_PATH = 'data/train'
@@ -47,68 +47,81 @@ from libs.utils import (
 
 ### START: ĐỊNH NGHĨA & CHẠY HUẤN LUYỆN MÔ HÌNH ###
 # Model sẽ được train bằng cac ảnh ở [TRAIN_DATA_DIR_PATH]
+if __name__ == "__main__":
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(f'Running on device: {device}')
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-print(f'Running on device: {device}')
+    # Ensure deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
-# Ensure deterministic behavior
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+    labeled_image_paths, labels = get_labeled_image_folder(TRAIN_DATA_DIR_PATH)
 
-labeled_image_paths, labels = get_labeled_image_folder(TRAIN_DATA_DIR_PATH)
+    l_dataset = LabeledDataset(image_paths=labeled_image_paths, labels=labels, transform=org_transform, aug_transform=aug_transform)
+    u_dataset = UnlabeledFolderDataset(root_dir=TEST_DATA_DIR_PATH, transform=org_transform, aug_transform=aug_transform)
 
-l_dataset = LabeledDataset(image_paths=labeled_image_paths, labels=labels, transform=org_transform, aug_transform=aug_transform)
-u_dataset = UnlabeledFolderDataset(root_dir=TEST_DATA_DIR_PATH, transform=org_transform, aug_transform=aug_transform)
+    l_batch_size = 128
+    u_batch_size = 128
 
-l_batch_size = 128
-u_batch_size = 128
+    l_loader  = DataLoader(l_dataset, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    u_loader  = DataLoader(u_dataset, batch_size=u_batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-l_loader  = DataLoader(l_dataset, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
-u_loader  = DataLoader(u_dataset, batch_size=u_batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    teacher_chkpt = "teacher.pt"
+    student_chkpt = "student.pt"
 
-teacher_chkpt = "teacher.pt"
-student_chkpt = "student.pt"
+    weight_decay = 1e-4
+    initial_lr = 2e-5
+    teacher = get_base_model()
+    student = get_base_model()
+    teacher_optimizer = Adam(teacher.parameters(), lr=initial_lr/2, weight_decay=weight_decay)
+    student_optimizer = Adam(student.parameters(), lr=initial_lr, weight_decay=weight_decay)
+    teacher = teacher.to(device)
+    student = student.to(device)
 
-weight_decay = 1e-4
-initial_lr = 2e-5
-teacher = get_base_model()
-student = get_base_model()
-teacher_optimizer = Adam(teacher.parameters(), lr=initial_lr/2, weight_decay=weight_decay)
-student_optimizer = Adam(student.parameters(), lr=initial_lr, weight_decay=weight_decay)
-teacher = teacher.to(device)
-student = student.to(device)
+    criterion = nn.CrossEntropyLoss()
 
-criterion = nn.CrossEntropyLoss()
+    # ============================================
+    print(f"\nTrain both the teacher and the student")
 
-# ============================================
-print(f"\nTrain both the teacher and the student")
+    min_loss = 1e9
+    epochs = 2000
+    for epoch in range(epochs):
+        print(f"Epoch {epoch + 1}/{epochs}")
+        loss = train_MPL(
+            teacher, 
+            student, 
+            teacher_optimizer, 
+            student_optimizer, 
+            criterion, 
+            l_loader, 
+            u_loader, 
+            epoch + 1, 
+            device, 
+            uda_rampup_steps=1000, 
+            mpl_rampup_steps=500
+        )
 
-min_loss = 1e9
-epochs = 1000
-for epoch in range(epochs):
-    print(f"Epoch {epoch + 1}/{epochs}")
-    loss = train_MPL(teacher, student, teacher_optimizer, student_optimizer, criterion, l_loader, u_loader, device)
+    save_checkpoint(teacher_chkpt, teacher, teacher_optimizer, epoch, loss)
+    save_checkpoint(student_chkpt, student, student_optimizer, epoch, loss)
 
-save_checkpoint(teacher_chkpt, teacher, teacher_optimizer, epoch, loss)
-save_checkpoint(student_chkpt, student, student_optimizer, epoch, loss)
 
-# ============================================
-print(f"\nFine-tune student on labeled dataset")
+    # ============================================
+    print(f"\nFine-tune student on labeled dataset")
 
-train_set = LabeledDataset(labeled_image_paths, labels, transform=org_transform, aug_transform=aug_transform)
-train_loader = DataLoader(train_set, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    train_set = LabeledDataset(labeled_image_paths, labels, transform=org_transform, aug_transform=aug_transform)
+    train_loader = DataLoader(train_set, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
-[student, _, _, _] = load_checkpoint(student_chkpt, student)
-student_optimizer = Adam(student.parameters(), lr=1e-6, weight_decay=weight_decay)
+    [student, _, _, _] = load_checkpoint(student_chkpt, student)
+    student_optimizer = Adam(student.parameters(), lr=1e-6, weight_decay=weight_decay)
 
-epochs = 100
-min_loss = 1e9
-model_checkpoint = "model_chkpt/finetuned_student.pt"
-for epoch in range(epochs):
-    print(f"Epoch {epoch + 1}/{epochs}")
-    loss = train(student, student_optimizer, train_loader, criterion, device)
+    epochs = 100
+    min_loss = 1e9
+    model_checkpoint = "model_chkpt/finetuned_student.pt"
+    for epoch in range(epochs):
+        print(f"Epoch {epoch + 1}/{epochs}")
+        loss = train(student, student_optimizer, train_loader, criterion, device)
 
-save_checkpoint(model_checkpoint, student, student_optimizer, epoch, loss)
+    save_checkpoint(model_checkpoint, student, student_optimizer, epoch, loss)
     
 ### END: ĐỊNH NGHĨA & CHẠY HUẤN LUYỆN MÔ HÌNH ###
 
@@ -123,28 +136,28 @@ save_checkpoint(model_checkpoint, student, student_optimizer, epoch, loss)
 # image3.jpg,2
 # image4.jpg,3
 
-submission_csv_path = "output/results.csv"
+    submission_csv_path = "output/results.csv"
 
-print("\nPredict on unlabeled dataset")
-predictions = []
-val_u_dataset   = UnlabeledFolderDataset(root_dir=TEST_DATA_DIR_PATH, transform=org_transform, aug_transform=aug_transform)
-val_u_loader    = DataLoader(val_u_dataset, batch_size=512, shuffle=False, num_workers=4, pin_memory=True)
+    print("\nPredict on unlabeled dataset")
+    predictions = []
+    val_u_dataset   = UnlabeledFolderDataset(root_dir=TEST_DATA_DIR_PATH, transform=org_transform, aug_transform=aug_transform)
+    val_u_loader    = DataLoader(val_u_dataset, batch_size=512, shuffle=False, num_workers=4, pin_memory=True)
 
-[student, _, _, _] = load_checkpoint(model_checkpoint, student)
-student.eval()
-student = student.to(device)
+    [student, _, _, _] = load_checkpoint(model_checkpoint, student)
+    student.eval()
+    student = student.to(device)
 
-with torch.no_grad():
-    for i, (inputs, _) in enumerate(val_u_loader):
-        inputs = inputs.to(device)
-        outputs = student(inputs)
-        prediction = torch.argmax(outputs.data, 1).cpu().tolist()
-        predictions.extend(prediction)
-        print(f"Predicting {i + 1}/{len(val_u_loader)}...\r", end='')
-    print("Predicting complete." + " " * 20)
+    with torch.no_grad():
+        for i, (inputs, _) in enumerate(val_u_loader):
+            inputs = inputs.to(device)
+            outputs = student(inputs)
+            prediction = torch.argmax(outputs.data, 1).cpu().tolist()
+            predictions.extend(prediction)
+            print(f"Predicting {i + 1}/{len(val_u_loader)}...\r", end='')
+        print("Predicting complete." + " " * 20)
 
-image_paths = val_u_dataset.get_all_image_paths()
-image_names = [os.path.basename(path)  for path in image_paths]
-export_csv(submission_csv_path, predictions, image_names)
+    image_paths = val_u_dataset.get_all_image_paths()
+    image_names = [os.path.basename(path)  for path in image_paths]
+    export_csv(submission_csv_path, predictions, image_names)
 
 ### END: THỰC NGHIỆM & XUẤT FILE KẾT QUẢ RA CSV ###

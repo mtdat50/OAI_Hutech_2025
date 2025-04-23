@@ -95,10 +95,13 @@ def train_MPL(
     criterion,
     l_loader: DataLoader,
     u_loader: DataLoader,
+    global_step: int,
     device: str = None,
     threshold: float = 0.8,
-    uda_weight_max: float = 1.0,
-    uda_rampup_steps: int = 5000
+    uda_weight_max: float = 0.2,
+    uda_rampup_steps: int = 1000,
+    mpl_weight_max: float = 100.0,
+    mpl_rampup_steps: int = 1000
 ) -> float:
     """
     Args:
@@ -116,7 +119,6 @@ def train_MPL(
     total_student_loss = 0.0
     teacher_cnt = 1e-9
     student_cnt = 1e-9
-    global_step = 0
     unlabeled_iter = iter(u_loader)
 
     for i, (x_l, x_l_aug, y_l) in enumerate(l_loader):
@@ -137,9 +139,9 @@ def train_MPL(
             soft_pseudo = softmax(t_logits_u_aug, dim=-1)
             hard_pseudo = soft_pseudo.argmax(dim=-1)
 
-        # 3) ramp UDA weight
-        global_step += 1
+        # 3) ramp UDA, MPL weight
         uda_weight = uda_weight_max * min(1.0, global_step / uda_rampup_steps)
+        mpl_weight = mpl_weight_max * min(1.0, global_step / mpl_rampup_steps)
 
         # 4) inner-loop student update (differentiable)
         with higher.innerloop_ctx(
@@ -172,17 +174,13 @@ def train_MPL(
         log_aug = log_softmax(t_logits_u_aug, dim=-1)
         org_logits_u = teacher(x_u)
         orig = softmax(org_logits_u, dim=-1)
-        uda_loss = kl_div(log_aug, orig, reduction='batchmean')
+        uda_loss = kl_div(log_aug, orig, reduction='batchmean') * uda_weight
 
         # 6c) MPL pseudo-labeled cross-entropy
-        mpl_loss = criterion(t_logits_u_aug, hard_pseudo)
+        mpl_loss = criterion(t_logits_u_aug, hard_pseudo) * reward * mpl_weight
 
         teacher_optimizer.zero_grad()
-        teacher_loss = (
-            t_sup
-            + uda_weight * uda_loss
-            + mpl_loss * reward
-        )
+        teacher_loss = t_sup + uda_loss + mpl_loss
         teacher_loss.backward()
         teacher_optimizer.step()
 
@@ -208,8 +206,9 @@ def train_MPL(
         student_cnt += n_tot
         total_student_loss += student_loss.item() * n_tot
 
-        print(f"[{i+1}/{len(l_loader)}] Teacher: {total_teacher_loss/teacher_cnt:.4f} | Student: {total_student_loss/student_cnt:.4f}", end="\r")
+        print(f"[{i+1}/{len(l_loader)}] Teacher: {total_teacher_loss/teacher_cnt:.4f} | Student: {total_student_loss/student_cnt:.4f} | uda {uda_loss:.4f}, t_sup {t_sup:.4f}, mpl {mpl_loss:.4f}", end="\r")
     print()
 
     return (total_teacher_loss/teacher_cnt
           + total_student_loss/student_cnt)
+
