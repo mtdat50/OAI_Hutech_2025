@@ -98,9 +98,9 @@ def train_MPL(
     global_step: int,
     device: str = None,
     threshold: float = 0.8,
-    uda_weight_max: float = 0.2,
+    uda_weight_max: float = 0.1,
     uda_rampup_steps: int = 1000,
-    mpl_weight_max: float = 100.0,
+    mpl_weight_max: float = 200.0,
     mpl_rampup_steps: int = 1000
 ) -> float:
     """

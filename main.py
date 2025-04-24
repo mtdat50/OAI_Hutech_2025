@@ -97,7 +97,7 @@ if __name__ == "__main__":
             u_loader, 
             epoch + 1, 
             device, 
-            uda_rampup_steps=1000, 
+            uda_rampup_steps=500, 
             mpl_rampup_steps=500
         )
 
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_set, batch_size=l_batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     [student, _, _, _] = load_checkpoint(student_chkpt, student)
-    student_optimizer = Adam(student.parameters(), lr=1e-6, weight_decay=weight_decay)
+    student_optimizer = Adam(student.parameters(), lr=5e-6, weight_decay=weight_decay)
 
     epochs = 100
     min_loss = 1e9
